@@ -1,0 +1,77 @@
+flowchart LR
+  User["Grafana user"]
+
+  subgraph Grafana["Grafana runtime"]
+    PluginRoot["Gmon AI plugin\nsrc/module.tsx"]
+    MCPProvider["MCPClientProvider\n@grafana/llm"]
+    Routes["React routes\n/ chat\n/history\n/prompts"]
+  end
+
+  subgraph Client["Frontend app"]
+    ChatUI["ChatInterface"]
+    PromptUI["PromptLibrary\nAppConfig"]
+    ContextSvc["contextService\nuser + dashboard + datasources"]
+    ToolFilter["toolFilter.ts\nallowed MCP tools"]
+    MsgTruncation["truncation.ts\nconversation window"]
+    LLMService["llm.ts\nchat + tool loop"]
+    ChatHistory["chatHistory.ts\nlocalStorage"]
+    PromptLib["promptLibrary.ts\nlocalStorage + jsonData"]
+  end
+
+  subgraph LLM["Grafana LLM integration"]
+    LLMPlugin["Grafana LLM plugin\nhealth + chat completions"]
+    Model["Configured LLM provider\nbase / large"]
+    MCPTools["Grafana MCP tools\ndashboards, datasources, queries"]
+  end
+
+  subgraph Backend["Gmon AI backend"]
+    GoPlugin["Go plugin\npkg/main.go\npkg/plugin/app.go"]
+    Resources["/settings\n/ping\nhealth check"]
+    OTel["OpenTelemetry\npkg/plugin/otel.go"]
+  end
+
+  Docker["Docker dev stack\nGrafana + plugin + OTel LGTM"]
+
+  User -->|opens /a/gmon-ai| PluginRoot
+  PluginRoot --> MCPProvider
+  MCPProvider --> Routes
+  Routes --> ChatUI
+  Routes --> PromptUI
+
+  ChatUI -->|builds prompt context| ContextSvc
+  ChatUI -->|lists tools| MCPProvider
+  MCPProvider -->|listTools / callTool| MCPTools
+  ChatUI --> ToolFilter
+  ChatUI --> MsgTruncation
+  ChatUI -->|messages + context + tools| LLMService
+  LLMService -->|llm.chatCompletions| LLMPlugin
+  LLMPlugin --> Model
+  Model -->|text or tool_calls| LLMPlugin
+  LLMPlugin --> LLMService
+  LLMService -->|executes tool_calls via mcpClient| MCPProvider
+  LLMService -->|updates UI| ChatUI
+  ChatUI -->|save final messages| ChatHistory
+
+  PromptUI --> PromptLib
+  PromptUI -->|POST /api/plugins/gmon-ai/settings| GoPlugin
+  GoPlugin --> Resources
+  Resources -->|jsonData promptLibrary| PromptLib
+
+  ChatUI -->|llm.health| LLMPlugin
+  GoPlugin --> OTel
+  PluginRoot --> Docker
+  GoPlugin --> Docker
+
+  classDef user fill:#1f77b4,stroke:#0b3b66,color:#fff;
+  classDef grafana fill:#2d9cdb,stroke:#155a7a,color:#fff;
+  classDef client fill:#f2c94c,stroke:#a88418,color:#000;
+  classDef llm fill:#6a51a3,stroke:#3b1f66,color:#fff;
+  classDef backend fill:#7f8c8d,stroke:#4f6062,color:#fff;
+  classDef infra fill:#17a2b8,stroke:#0f656f,color:#fff;
+
+  class User user;
+  class PluginRoot,MCPProvider,Routes grafana;
+  class ChatUI,PromptUI,ContextSvc,ToolFilter,MsgTruncation,LLMService,ChatHistory,PromptLib client;
+  class LLMPlugin,Model,MCPTools llm;
+  class GoPlugin,Resources,OTel backend;
+  class Docker infra;

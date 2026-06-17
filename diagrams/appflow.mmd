@@ -1,0 +1,54 @@
+sequenceDiagram
+  autonumber
+  actor User as Grafana user
+  participant UI as ChatInterface
+  participant Context as contextService
+  participant MCP as MCPClientProvider / mcpClient
+  participant Filter as filterTools + truncateMessages
+  participant LLM as llmService
+  participant GrafanaLLM as Grafana LLM plugin
+  participant Model as LLM provider
+  participant Tools as Grafana MCP tools
+  participant History as chatHistoryService
+
+  User->>UI: Type question, attach files, or choose prompt
+  UI->>Context: Read user, dashboard, variables, datasources
+  Context-->>UI: Runtime context for system prompt
+
+  UI->>MCP: listTools()
+  MCP->>Tools: Fetch available Grafana MCP tools
+  Tools-->>MCP: Tool definitions
+  MCP-->>UI: Tool definitions
+  UI->>Filter: convertToolsToOpenAI() + filterTools()
+  Filter-->>UI: Allowed OpenAI-style tool list
+
+  UI->>Filter: truncateMessages(messages, 10)
+  Filter-->>UI: Bounded conversation history
+  UI->>LLM: chat(messages, context, modelType, mcpClient, tools)
+
+  LLM->>GrafanaLLM: llm.chatCompletions(messages, tools)
+  GrafanaLLM->>Model: Request completion
+  Model-->>GrafanaLLM: Text response or tool_calls
+  GrafanaLLM-->>LLM: Assistant message
+
+  alt Assistant returned tool_calls
+    loop Up to 10 tool-call iterations
+      LLM-->>UI: Mark tool call pending
+      LLM->>MCP: callTool(name, arguments)
+      MCP->>Tools: Execute Grafana MCP tool
+      Tools-->>MCP: Tool result content
+      MCP-->>LLM: Tool result
+      LLM->>LLM: truncateToolResult(result.content)
+      LLM->>GrafanaLLM: Follow-up chatCompletions(messages + tool result)
+      GrafanaLLM->>Model: Continue completion
+      Model-->>GrafanaLLM: Final text or more tool_calls
+      GrafanaLLM-->>LLM: Assistant message
+      LLM-->>UI: Update content and tool status
+    end
+  else No tool calls
+    LLM-->>UI: Update assistant content
+  end
+
+  UI->>History: saveSession(finalMessages, currentSessionId)
+  History-->>UI: Saved session id
+  UI-->>User: Render markdown, code, mermaid, attachments, tool statuses
